@@ -104,7 +104,7 @@ def multiping(hosts, repeat=0, timeout=0.25):
     loop_check = lambda r: (r < repeat or repeat == 0)
   drops = [0] * len (hosts)
   n=0
-  while loop_check():
+  while loop_check(n):
     pings = multiping_data(hosts, timeout)
     for idx in range(len(hosts)):
       if not " ms" in pings[idx]:
