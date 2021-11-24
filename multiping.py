@@ -84,14 +84,19 @@ def multiping(hosts, repeat=0, timeout=0.25):
   n=0
   thread_check = threading.Thread(target=threaded_check_input)
   thread_check.start()
+  drops = [0] * len (hosts)
   while n < repeat or repeat ==0:
     pings = multiping_data(hosts, timeout)
+    for idx in range(len(hosts)):
+      if not " ms" in pings[idx]:
+        drops[idx] += 1
     pings = pretty_ping_data(pings, spacing)
     print("".join(pings))
     print("".join([host.rjust(spacing) for host in hosts]), end="\r")
     n+=1
     if not thread_check.is_alive(): break
   print("")
+  print(drops)
 
 #multiping(sys.argv[1:])
 params = read_parameters()
