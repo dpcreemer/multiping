@@ -96,11 +96,15 @@ def pretty_ping_data(pings, spacing):
 def multiping(hosts, repeat=0, timeout=0.25):
   signal.signal(signal.SIGINT, handler)
   spacing = max([len(host) for host in hosts] + [12]) +2
-  n=0
-  thread_check = Check_Input_Thread()
-  thread_check.start()
+  if repeat == 0:
+    thread_check = Check_Input_Thread()
+    thread_check.start()
+    loop_check = lambda r: (r < repeat or repeat == 0) and thread_check.is_alive()
+  else:
+    loop_check = lambda r: (r < repeat or repeat == 0)
   drops = [0] * len (hosts)
-  while (n < repeat or repeat ==0) and thread_check.is_alive():
+  n=0
+  while loop_check():
     pings = multiping_data(hosts, timeout)
     for idx in range(len(hosts)):
       if not " ms" in pings[idx]:
@@ -109,8 +113,6 @@ def multiping(hosts, repeat=0, timeout=0.25):
     print("".join(pings))
     print("".join([host.rjust(spacing) for host in hosts]), end="\r")
     n+=1
-  thread_check.stop()
-  #if thread_check.is_alive(): thread_check.stop()
   print("")
   print(drops)
 
