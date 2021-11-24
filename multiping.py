@@ -20,7 +20,7 @@ class bcolors:
 class Check_Input_Thread(threading.Thread):
   def __init__(self, *args, **kwargs):
     super(Check_Input_Thread, self).__init__(*args, **kwargs)
-    self._stop == threading.Event()
+    self._stop = threading.Event()
 
   def stop(self):
     self._stop.set()
@@ -107,7 +107,8 @@ def multiping(hosts, repeat=0, timeout=0.25):
     print("".join(pings))
     print("".join([host.rjust(spacing) for host in hosts]), end="\r")
     n+=1
-  if thread_check.is_alive(): thread_check.stop()
+  thread_check.stop()
+  #if thread_check.is_alive(): thread_check.stop()
   print("")
   print(drops)
 
