@@ -116,6 +116,8 @@ def multiping(hosts, repeat=0, timeout=0.25):
     for idx in range(len(hosts)):
       if not " ms" in pings[idx]:
         drops[idx] += 1
+      if pings[idx] == "timeout":
+        pings[idx] += f" - {drops[idx]}"
     pings = pretty_ping_data(pings, spacing)
     print("".join(pings))
     print("".join([host.rjust(spacing) for host in hosts]), end="\r")
