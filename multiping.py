@@ -110,14 +110,17 @@ def multiping(hosts, repeat=0, timeout=0.25):
   else:
     loop_check = lambda r: (r < repeat or repeat == 0)
   n = 0
-  drops = [0] * len (hosts)
+  drops = [0] * len(hosts)
+  drops_set = [0] * len(hosts)
   while loop_check(n):
     pings = multiping_data(hosts, timeout)
     for idx in range(len(hosts)):
       if not " ms" in pings[idx]:
         drops[idx] += 1
-      if pings[idx] == "timeout":
-        pings[idx] += f" - {drops[idx]}"
+        drops_set[idx] +=1
+        if pings[idx] == "timeout": pings[idx] += f" - {drops_set[idx]}"
+      else:
+        drops_set[idx] = 0
     pings = pretty_ping_data(pings, spacing)
     print("".join(pings))
     print("".join([host.rjust(spacing) for host in hosts]), end="\r")
