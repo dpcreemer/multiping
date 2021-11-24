@@ -5,6 +5,7 @@ from time import sleep
 
 ping3.EXCEPTIONS = True
 
+# Bash color codes to highlight output
 class bcolors:
   HEADER = '\033[95m'
   BLUE = '\033[94m'
@@ -16,31 +17,23 @@ class bcolors:
   UNDERLINE = '\033[4m'
   ENDC = '\033[0m'
 
+# Print help info
+def show_help():
+  print("""multiping - simultaneously ping multiple hosts.
 
-class Check_Input_Thread(threading.Thread):
-  def __init__(self, *args, **kwargs):
-    super(Check_Input_Thread, self).__init__(*args, **kwargs)
-    self._stop = threading.Event()
+  parameters:
+       Hostname or IP address of host (repeat this parameter as needed)
+       timeout: -t or --timeout  The timeout value, in seconds, to set for each ping. (default is 0.25)
+       repeat: -r or --repeat    The number of pings to send to each host.  0 means unlimited. (default 0)
+  """)
+  exit()
 
-  def stop(self):
-    print("stopping")
-    self._stop.set()
-  
-  def stopped(self):
-    print("checking for Stop")
-    return self._stop.isSet()
-  
-  def run(self):
-    fd = termios.tcgetattr(sys.stdin)
-    tty.setcbreak(sys.stdin)
-    key = 0
-    while True:
-      key = sys.stdin.read(1)[0]
-      if key == 'q' or self.stopped():
-        break
-    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
-
+# Read command line arguments
+#    -t, --timeout : The timeout value, in seconds, for each ping (default 0.25)
+#    -r, --repeat  : The repeat (number of pings) to send to each host.  0 means unlimited.  (default 0)
 def read_parameters():
+  if len(sys.argv) == 1:
+    show_help()
   args = sys.argv[1:]
   params = {"repeat":0, "timeout":0.25, "hosts":[]}
   next_arg = "host"
@@ -48,6 +41,8 @@ def read_parameters():
     if next_arg in ["repeat", "timeout"]:
       params[next_arg] = float(arg)
       next_arg = "host"
+    elif arg in ["-h", "-?", "--help"]:
+      show_help()
     elif arg in ["-t", "--timeout"]:
       next_arg = "timeout"
     elif arg in ["-r", "--repeat"]:
@@ -56,9 +51,11 @@ def read_parameters():
       params['hosts'].append(arg)
   return params
 
-def handler(signum, frame):
-  print('================ press "q" to quit. ==================')
-
+# For unlimited pings some sort of break is needed to stop the ping but not halt the program.  
+# This allows a summary to display after the pings
+# This threaded function will run in the background and monitor stdin for input.
+# When the "q" key is pressed, the thread will terminate. 
+# Active status of thread can be used to determine the need to halt pings.
 def threaded_check_input():
   fd = termios.tcgetattr(sys.stdin)
   tty.setcbreak(sys.stdin)
@@ -67,6 +64,16 @@ def threaded_check_input():
     key = sys.stdin.read(1)[0]
   termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
 
+# For unlimited pings Ctrl-C is disabled.  Instead "q" should be used to stop the process.
+# This handler function provides user feedback if they try to use Ctr-C to halt the ping process.
+def handler(signum, frame):
+  print('================ press "q" to quit. ==================')
+
+# Function to ping an individual host.  This thread is meant to be threaded, to allow for multiple simultaneous pings.
+#     host    - the host name/address to be pinged in this thread
+#     result  - a list shared from the parent script.  This serves as a shared buffer to store ping results from threads to the main function.
+#     index   - the position within the result list where output should be stored.
+#     timeout - the timeout value to set on the ping.
 def threaded_ping(host, result, index, timeout=0.25):
   try:
     t = ping3.ping(host, timeout=timeout) * 1000
@@ -78,6 +85,9 @@ def threaded_ping(host, result, index, timeout=0.25):
     elif "Unknown host" in result[index]:
       result[index] = "unknown host"
 
+# Send one ping to each host in the hosts list and capture the results
+#      hosts    - a list of hostnames/addresses to be pinged
+#      timeout  - the timeout value in seconds for each ping.
 def multiping_data(hosts, timeout=0.25):
   if not type(hosts) is list:
     raise Exception("Invalid type for \"hosts\" argument.  Type should be list.")
@@ -91,6 +101,7 @@ def multiping_data(hosts, timeout=0.25):
     sleep(0.01)
   return results
 
+# Clean up ping data for display
 def pretty_ping_data(pings, spacing):
   for idx in range(len(pings)):
     if ' ms' in pings[idx]:
@@ -100,6 +111,7 @@ def pretty_ping_data(pings, spacing):
     pings[idx] = f"{color}{pings[idx].rjust(spacing)}{bcolors.ENDC}"
   return pings
 
+# The main multiping function.  
 def multiping(hosts, repeat=0, timeout=0.25):
   spacing = max([len(host) for host in hosts] + [12]) +2
   if repeat == 0:
@@ -127,9 +139,8 @@ def multiping(hosts, repeat=0, timeout=0.25):
     n+=1
   print("")
   print("".join([f"{drop} drops".rjust(spacing) for drop in drops]))
-  print(f"{n} pings sent per host.")
+  print(f"{n} pings sent per host with timeout set to {timeout}s.")
 
-#multiping(sys.argv[1:])
 params = read_parameters()
 multiping(hosts=params['hosts'], repeat=params['repeat'], timeout=params['timeout'])
 
