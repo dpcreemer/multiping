@@ -40,7 +40,6 @@ class Check_Input_Thread(threading.Thread):
         break
     termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
 
-
 def read_parameters():
   args = sys.argv[1:]
   params = {"repeat":0, "timeout":0.25, "hosts":[]}
@@ -59,6 +58,14 @@ def read_parameters():
 
 def handler(signum, frame):
   print('================ press "q" to quit. ==================')
+
+def threaded_check_input():
+  fd = termios.tcgetattr(sys.stdin)
+  tty.setcbreak(sys.stdin)
+  key = 0
+  while key != 'q':
+    key = sys.stdin.read(1)[0]
+  termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
 
 def threaded_ping(host, result, index, timeout=0.25):
   try:
@@ -94,16 +101,16 @@ def pretty_ping_data(pings, spacing):
   return pings
 
 def multiping(hosts, repeat=0, timeout=0.25):
-  signal.signal(signal.SIGINT, handler)
   spacing = max([len(host) for host in hosts] + [12]) +2
   if repeat == 0:
-    thread_check = Check_Input_Thread()
+    signal.signal(signal.SIGINT, handler)
+    thread_check = threading.Thread(target=threaded_check_input)
     thread_check.start()
     loop_check = lambda r: (r < repeat or repeat == 0) and thread_check.is_alive()
   else:
     loop_check = lambda r: (r < repeat or repeat == 0)
+  n = 0
   drops = [0] * len (hosts)
-  n=0
   while loop_check(n):
     pings = multiping_data(hosts, timeout)
     for idx in range(len(hosts)):
