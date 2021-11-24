@@ -23,9 +23,11 @@ class Check_Input_Thread(threading.Thread):
     self._stop = threading.Event()
 
   def stop(self):
+    print("stopping")
     self._stop.set()
   
   def stopped(self):
+    print("checking for Stop")
     return self._stop.isSet()
   
   def run(self):
