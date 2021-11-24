@@ -16,6 +16,29 @@ class bcolors:
   UNDERLINE = '\033[4m'
   ENDC = '\033[0m'
 
+
+class Check_Input_Thread(threading.Thread):
+  def __init__(self, *args, **kwargs):
+    super(Check_Input_Thread, self).__init__(*args, **kwargs)
+    self._stop == threading.Event()
+
+  def stop(self):
+    self._stop.set()
+  
+  def stopped(self):
+    return self._stop.isSet()
+  
+  def run(self):
+    fd = termios.tcgetattr(sys.stdin)
+    tty.setcbreak(sys.stdin)
+    key = 0
+    while True:
+      key = sys.stdin.read(1)[0]
+      if key == 'q' or self.stopped():
+        break
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
+
+
 def read_parameters():
   args = sys.argv[1:]
   params = {"repeat":0, "timeout":0.25, "hosts":[]}
@@ -46,16 +69,6 @@ def threaded_ping(host, result, index, timeout=0.25):
     elif "Unknown host" in result[index]:
       result[index] = "unknown host"
 
-def threaded_check_input():
-  fd = termios.tcgetattr(sys.stdin)
-  tty.setcbreak(sys.stdin)
-  key = 0
-  while True:
-    key = sys.stdin.read(1)[0]
-    if key == 'q':
-      break
-  termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
-
 def multiping_data(hosts, timeout=0.25):
   if not type(hosts) is list:
     raise Exception("Invalid type for \"hosts\" argument.  Type should be list.")
@@ -82,10 +95,10 @@ def multiping(hosts, repeat=0, timeout=0.25):
   signal.signal(signal.SIGINT, handler)
   spacing = max([len(host) for host in hosts] + [12]) +2
   n=0
-  thread_check = threading.Thread(target=threaded_check_input)
+  thread_check = Check_Input_Thread()
   thread_check.start()
   drops = [0] * len (hosts)
-  while n < repeat or repeat ==0:
+  while (n < repeat or repeat ==0) and thread_check.is_alive():
     pings = multiping_data(hosts, timeout)
     for idx in range(len(hosts)):
       if not " ms" in pings[idx]:
@@ -94,7 +107,7 @@ def multiping(hosts, repeat=0, timeout=0.25):
     print("".join(pings))
     print("".join([host.rjust(spacing) for host in hosts]), end="\r")
     n+=1
-    if not thread_check.is_alive(): break
+  if thread_check.is_alive(): thread_check.stop()
   print("")
   print(drops)
 
