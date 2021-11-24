@@ -121,7 +121,8 @@ def multiping(hosts, repeat=0, timeout=0.25):
     print("".join([host.rjust(spacing) for host in hosts]), end="\r")
     n+=1
   print("")
-  print(drops)
+  print("".join([f"{drop} drops".rjust(spacing) for drop in drops]))
+  print(f"Out of {n} pings.")
 
 #multiping(sys.argv[1:])
 params = read_parameters()
