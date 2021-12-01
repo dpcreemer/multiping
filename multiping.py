@@ -17,6 +17,138 @@ class bcolors:
   UNDERLINE = '\033[4m'
   ENDC = '\033[0m'
 
+class Multiping:
+  def __init__(self, hosts, timeout=0.25, repeat=0):
+    self.__hosts = [None]
+    self.__timeout = None
+    self.__repeat = None
+    self.__spacing = 12
+    self.hosts = hosts
+    self.timeout = timeout
+    self.repeat = repeat
+    self.results = [None] * self.host_count
+    self.drops_active = [0] * self.host_count
+    self.drops_total = [0] * self.host_count
+
+  @property
+  def hosts(self):
+    return self.__hosts
+
+  @hosts.setter
+  def hosts(self, hosts):
+    if not type(hosts) is list:
+      raise Exception(f"Invalid type {type(hosts)} for hosts parameter.  Should be type List.")
+    self.__hosts = hosts
+    self.__spacing = max([len(host) for host in hosts] + [12])
+  
+  @property
+  def timeout(self):
+    return self.__timeout
+  
+  @timeout.setter
+  def timeout(self, timeout):
+    try: 
+      self.__timeout = float(timeout)
+    except:
+      raise Exception(f"Invalid value {timeout} for timeout.  Should be a number.")
+  
+  @property 
+  def repeat(self):
+    return self.__repeat
+  
+  @repeat.setter
+  def repeat(self, repeat):
+    try:
+      self.__repeat = int(repeat)
+    except:
+      raise Exception(f"Invalid value {repeat} for repeat.  Should be an integer. (0 means unlimited).")
+  
+  @property
+  def host_count(self):
+    return len(self.hosts)
+
+  # For unlimited pings some sort of break is needed to stop the ping but not halt the program.  
+  # This allows a summary to display after the pings
+  # This threaded function will run in the background and monitor stdin for input.
+  # When the "q" key is pressed, the thread will terminate. 
+  # Active status of thread can be used to determine the need to halt pings.
+  def threaded_check_input(self):
+    fd = termios.tcgetattr(sys.stdin)
+    tty.setcbreak(sys.stdin)
+    key = 0
+    while key != 'q':
+      key = sys.stdin.read(1)[0]
+    termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
+  
+  # Function to ping an individual host.  This thread is meant to be threaded, to allow for multiple simultaneous pings.
+  #     host    - the host name/address to be pinged in this thread
+  #     result  - a list shared from the parent script.  This serves as a shared buffer to store ping results from threads to the main function.
+  #     index   - the position within the result list where output should be stored.
+  #     timeout - the timeout value to set on the ping.
+  def threaded_ping(self, index):
+    try:
+      t = ping3.ping(self.hosts[index], timeout=self.timeout) * 1000
+      self.results[index] = f"{t:.2f} ms"
+      self.record_drop(index, False)
+    except Exception as e:
+      self.record_drop(index, True)
+      if "timeout" in str(e):
+        self.results[index] = f"timeout - {self.drops_active[index]}"
+      elif "Unknown host" in str(e):
+        self.results[index] = "unknown host"
+      else:
+        self.results[index] = str(e)
+
+  # Send one ping to each host in the hosts list and capture the results
+  #      hosts    - a list of hostnames/addresses to be pinged
+  #      timeout  - the timeout value in seconds for each ping.
+  def single_ping(self):
+    threads = [None] * self.host_count
+    for idx in range(self.host_count):
+      threads[idx] = threading.Thread(target=self.threaded_ping, args=(idx,))
+      threads[idx].start()
+    sleep(self.timeout)
+    while True in [thread.is_alive() for thread in threads]:
+      sleep(0.01)
+  
+  def record_drop(self, host_idx, dropped):
+    if dropped:
+      self.drops_active[host_idx] += 1
+      self.drops_total[host_idx] += 1
+    else:
+      self.drops_active[host_idx] = 0
+  
+  def pad_and_colorize(self):
+    for idx in range(self.host_count):
+      if " ms" in self.results[idx]:
+        color = bcolors.GREEN
+      else:
+        color = bcolors.RED
+      self.results[idx] = f"{color}{self.results[idx].rjust(self.__spacing)}{bcolors.ENDC}"
+  
+  def ping(self):
+    if self.repeat == 0:
+      handler = lambda x,y: print("=== press 'q' to quit ===".center((self.__spacing + 2) * self.host_count ))
+      sig = signal.signal(signal.SIGINT, handler)
+      thread_check = threading.Thread(target=self.threaded_check_input)
+      thread_check.start()
+      loop_check = lambda r: thread_check.is_alive()
+    else:
+      loop_check = lambda r: r < self.repeat
+    ping_count = 0
+    while loop_check(ping_count):
+      self.single_ping()
+      self.pad_and_colorize()
+      print("  ".join(self.results))
+      print("  ".join([host.rjust(self.__spacing) for host in self.hosts]), end="\r")
+      ping_count += 1
+    print("")
+    print("  ".join([f"{drop} drops".rjust(self.__spacing) for drop in self.drops_total]))
+    print(f"{ping_count} pings sent per host with timeout of {self.timeout}s.")
+    if self.repeat == 0:
+      signal.signal(signal.SIGINT, sig)
+
+
 # Print help info
 def show_help():
   print("""multiping - simultaneously ping multiple hosts.
@@ -51,97 +183,8 @@ def read_parameters():
       params['hosts'].append(arg)
   return params
 
-# For unlimited pings some sort of break is needed to stop the ping but not halt the program.  
-# This allows a summary to display after the pings
-# This threaded function will run in the background and monitor stdin for input.
-# When the "q" key is pressed, the thread will terminate. 
-# Active status of thread can be used to determine the need to halt pings.
-def threaded_check_input():
-  fd = termios.tcgetattr(sys.stdin)
-  tty.setcbreak(sys.stdin)
-  key = 0
-  while key != 'q':
-    key = sys.stdin.read(1)[0]
-  termios.tcsetattr(sys.stdin, termios.TCSADRAIN, fd)
-
-# For unlimited pings Ctrl-C is disabled.  Instead "q" should be used to stop the process.
-# This handler function provides user feedback if they try to use Ctr-C to halt the ping process.
-def handler(signum, frame):
-  print('================ press "q" to quit. ==================')
-
-# Function to ping an individual host.  This thread is meant to be threaded, to allow for multiple simultaneous pings.
-#     host    - the host name/address to be pinged in this thread
-#     result  - a list shared from the parent script.  This serves as a shared buffer to store ping results from threads to the main function.
-#     index   - the position within the result list where output should be stored.
-#     timeout - the timeout value to set on the ping.
-def threaded_ping(host, result, index, timeout=0.25):
-  try:
-    t = ping3.ping(host, timeout=timeout) * 1000
-    result[index] = f"{t:.2f} ms"
-  except Exception as e:
-    result[index] = str(e)
-    if "timeout" in result[index]:
-      result[index] = "timeout"
-    elif "Unknown host" in result[index]:
-      result[index] = "unknown host"
-
-# Send one ping to each host in the hosts list and capture the results
-#      hosts    - a list of hostnames/addresses to be pinged
-#      timeout  - the timeout value in seconds for each ping.
-def multiping_data(hosts, timeout=0.25):
-  if not type(hosts) is list:
-    raise Exception("Invalid type for \"hosts\" argument.  Type should be list.")
-  results = [None] * len(hosts)
-  threads = [None] * len(hosts)
-  for idx in range(len(hosts)):
-    threads[idx] = threading.Thread(target=threaded_ping, args=(hosts[idx], results, idx, timeout))
-    threads[idx].start()
-  sleep(timeout)
-  while True in [thread.is_alive() for thread in threads]:
-    sleep(0.01)
-  return results
-
-# Clean up ping data for display
-def pretty_ping_data(pings, spacing):
-  for idx in range(len(pings)):
-    if ' ms' in pings[idx]:
-      color = bcolors.GREEN
-    else:
-      color = bcolors.RED
-    pings[idx] = f"{color}{pings[idx].rjust(spacing)}{bcolors.ENDC}"
-  return pings
-
-# The main multiping function.  
-def multiping(hosts, repeat=0, timeout=0.25):
-  spacing = max([len(host) for host in hosts] + [12]) +2
-  if repeat == 0:
-    signal.signal(signal.SIGINT, handler)
-    thread_check = threading.Thread(target=threaded_check_input)
-    thread_check.start()
-    loop_check = lambda r: (r < repeat or repeat == 0) and thread_check.is_alive()
-  else:
-    loop_check = lambda r: (r < repeat or repeat == 0)
-  n = 0
-  drops = [0] * len(hosts)
-  drops_set = [0] * len(hosts)
-  while loop_check(n):
-    pings = multiping_data(hosts, timeout)
-    for idx in range(len(hosts)):
-      if not " ms" in pings[idx]:
-        drops[idx] += 1
-        drops_set[idx] +=1
-        if pings[idx] == "timeout": pings[idx] += f" - {drops_set[idx]}"
-      else:
-        drops_set[idx] = 0
-    pings = pretty_ping_data(pings, spacing)
-    print("".join(pings))
-    print("".join([host.rjust(spacing) for host in hosts]), end="\r")
-    n+=1
-  print("")
-  print("".join([f"{drop} drops".rjust(spacing) for drop in drops]))
-  print(f"{n} pings sent per host with timeout set to {timeout}s.")
-
 params = read_parameters()
-multiping(hosts=params['hosts'], repeat=params['repeat'], timeout=params['timeout'])
+mp = Multiping(hosts=params['hosts'], repeat=params['repeat'], timeout=params['timeout'])
+mp.ping()
 
 
